@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Ma conversation · HoloPro uOttawa</title>
+<style>
+  :root { --grenat: #8F001A; --encre: #111; --gris: #5A5A5A; --bord: #E3E3E3; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+         color: var(--encre); background: #F6F6F6; line-height: 1.5; }
+  header { background: var(--grenat); color: #fff; padding: 18px 20px 16px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; opacity: .85; font-size: 14px; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px 14px 40px; }
+  .q, .r { padding: 12px 14px; border-radius: 16px; margin: 10px 0; max-width: 92%; }
+  .q { background: var(--grenat); color: #fff; margin-left: auto; border-bottom-right-radius: 4px; }
+  .r { background: #fff; border: 1px solid var(--bord); border-bottom-left-radius: 4px; }
+  .r a { display: block; margin-top: 8px; color: var(--grenat); font-weight: 600; word-break: break-all; font-size: 14px; }
+  .etiquette { font-size: 12px; color: var(--gris); margin: 14px 4px -4px; }
+  .note { font-size: 13px; color: var(--gris); text-align: center; margin-top: 26px; }
+  .erreur { background: #fff; border: 1px solid var(--bord); border-radius: 12px; padding: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titre">Votre conversation</h1>
+  <p id="sousTitre">Assistant d'accueil de l'Université d'Ottawa</p>
+</header>
+<main id="fil"></main>
+<script>
+/*
+  Lecteur de conversation de la borne HoloPro (équipe FA52, GNG1503).
+  La conversation est contenue dans l'adresse elle-même, après le « # ».
+  Cette partie de l'adresse n'est jamais envoyée au serveur qui héberge cette page :
+  rien n'est stocké nulle part, la conversation n'existe que sur ce téléphone.
+*/
+const TEXTES = {
+  fr: { titre: "Votre conversation", sous: "Assistant d'accueil de l'Université d'Ottawa",
+        vous: "Vous", assistant: "Assistant", source: "Source officielle",
+        note: "Cette conversation n'est enregistrée nulle part : elle est contenue uniquement dans le lien que vous avez scanné.",
+        vide: "Aucune conversation trouvée. Scannez le code QR affiché sur la borne.",
+        vieux: "Votre navigateur est trop ancien pour afficher cette conversation." },
+  en: { titre: "Your conversation", sous: "University of Ottawa welcome assistant",
+        vous: "You", assistant: "Assistant", source: "Official source",
+        note: "This conversation is not stored anywhere: it is contained only in the link you scanned.",
+        vide: "No conversation found. Scan the QR code shown on the kiosk.",
+        vieux: "Your browser is too old to display this conversation." },
+};
+
+function base64urlEnOctets(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s), octets = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) octets[i] = bin.charCodeAt(i);
+  return octets;
+}
+
+async function decoder(fragment) {
+  const format = fragment[0], donnees = base64urlEnOctets(fragment.slice(1));
+  let octets = donnees;
+  if (format === "z") {  // compressé (deflate)
+    const flux = new Blob([donnees]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    octets = new Uint8Array(await new Response(flux).arrayBuffer());
+  }
+  return JSON.parse(new TextDecoder().decode(octets));
+}
+
+function bulle(classe, texte) {
+  const d = document.createElement("div");
+  d.className = classe;
+  d.textContent = texte;
+  return d;
+}
+
+function afficher(conv) {
+  const t = TEXTES[conv.l] || TEXTES.fr;
+  document.documentElement.lang = conv.l === "en" ? "en" : "fr";
+  document.getElementById("titre").textContent = t.titre;
+  document.getElementById("sousTitre").textContent = t.sous;
+  const fil = document.getElementById("fil");
+  for (const [question, reponse, liens] of conv.m) {
+    fil.appendChild(bulle("q", question));
+    const r = bulle("r", reponse);
+    for (const url of liens || []) {
+      if (!/^https:\/\/([a-z0-9-]+\.)*uottawa\.ca(\/|$)/i.test(url)) continue;  // liens officiels seulement
+      const a = document.createElement("a");
+      a.href = url; a.rel = "noopener"; a.target = "_blank";
+      a.textContent = t.source + " → " + url.replace(/^https?:\/\/(www\.)?/, "");
+      r.appendChild(a);
+    }
+    fil.appendChild(r);
+  }
+  fil.appendChild(bulle("note", t.note));
+}
+
+(async () => {
+  const fil = document.getElementById("fil");
+  const lang = (navigator.language || "fr").startsWith("en") ? "en" : "fr";
+  const fragment = location.hash.slice(1);
+  if (!fragment) { fil.appendChild(bulle("erreur", TEXTES[lang].vide)); return; }
+  if (fragment[0] === "z" && !("DecompressionStream" in window)) {
+    fil.appendChild(bulle("erreur", TEXTES[lang].vieux)); return;
+  }
+  try {
+    afficher(await decoder(fragment));
+  } catch (e) {
+    fil.appendChild(bulle("erreur", TEXTES[lang].vide));
+  }
+})();
+</script>
+</body>
+</html>
